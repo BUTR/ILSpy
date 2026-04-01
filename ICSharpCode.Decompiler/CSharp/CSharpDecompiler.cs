@@ -652,7 +652,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			return new DecompilerTypeSystem(file, resolver, settings);
 		}
 
-		static TypeSystemAstBuilder CreateAstBuilder(DecompilerSettings settings)
+		internal static TypeSystemAstBuilder CreateAstBuilder(DecompilerSettings settings)
 		{
 			var typeSystemAstBuilder = new TypeSystemAstBuilder();
 			typeSystemAstBuilder.ShowAttributes = true;
@@ -683,7 +683,12 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 		}
 
-		DecompileRun CreateDecompileRun(HashSet<string> namespaces)
+		internal DecompileRun CreateDecompileRun(HashSet<string> namespaces)
+		{
+			return CreateDecompileRun(namespaces, settings);
+		}
+
+		internal DecompileRun CreateDecompileRun(HashSet<string> namespaces, DecompilerSettings decompilerSettings)
 		{
 			List<INamespace> resolvedNamespaces = new List<INamespace>();
 			foreach (var ns in namespaces)
@@ -701,14 +706,14 @@ namespace ICSharpCode.Decompiler.CSharp
 				resolvedNamespaces.ToImmutableArray()
 			);
 
-			return new DecompileRun(settings, usingScope) {
+			return new DecompileRun(decompilerSettings, usingScope) {
 				DocumentationProvider = DocumentationProvider ?? CreateDefaultDocumentationProvider(),
 				CancellationToken = CancellationToken,
 				Namespaces = namespaces
 			};
 		}
 
-		void RunTransforms(AstNode rootNode, DecompileRun decompileRun, ITypeResolveContext decompilationContext)
+		internal void RunTransforms(AstNode rootNode, DecompileRun decompileRun, ITypeResolveContext decompilationContext)
 		{
 			var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
 			var context = new TransformContext(typeSystem, decompileRun, decompilationContext, typeSystemAstBuilder);
@@ -1360,6 +1365,31 @@ namespace ICSharpCode.Decompiler.CSharp
 			return syntaxTree;
 		}
 
+		internal SyntaxTree DecompileSingleMethod(IMethod method)
+		{
+			if (method == null)
+				throw new ArgumentNullException(nameof(method));
+			syntaxTree = new SyntaxTree();
+			var methodOnlySettings = CreateMethodOnlySettings(settings);
+			var namespaces = new HashSet<string>();
+			var decompileRun = CreateDecompileRun(namespaces, methodOnlySettings);
+			var extensionInfo = method.ResolveExtensionInfo();
+			syntaxTree.Members.Add(DoDecompile(method, decompileRun, new SimpleTypeResolveContext(method), extensionInfo));
+			RunTransforms(syntaxTree, decompileRun, new SimpleTypeResolveContext(method.DeclaringTypeDefinition));
+			return syntaxTree;
+		}
+
+		static DecompilerSettings CreateMethodOnlySettings(DecompilerSettings settings)
+		{
+			var localSettings = settings.Clone();
+			localSettings.UsingDeclarations = false;
+			localSettings.ExtensionMethods = false;
+			localSettings.RefExtensionMethods = false;
+			localSettings.ExtensionMethodsInCollectionInitializers = false;
+			localSettings.QueryExpressions = false;
+			return localSettings;
+		}
+
 		ITypeDefinition FindCommonDeclaringTypeDefinition(ITypeDefinition a, ITypeDefinition b)
 		{
 			if (a == null || b == null)
@@ -1924,7 +1954,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			return firstValue == 0 ? EnumValueDisplayMode.None : EnumValueDisplayMode.FirstOnly;
 		}
 
-		EntityDeclaration DoDecompile(IMethod method, DecompileRun decompileRun, ITypeResolveContext decompilationContext, ExtensionInfo extensionInfo)
+		internal EntityDeclaration DoDecompile(IMethod method, DecompileRun decompileRun, ITypeResolveContext decompilationContext, ExtensionInfo extensionInfo)
 		{
 			Debug.Assert(decompilationContext.CurrentMember == method);
 			var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -2024,8 +2054,8 @@ namespace ICSharpCode.Decompiler.CSharp
 			try
 			{
 				var ilReader = new ILReader(typeSystem.MainModule) {
-					UseDebugSymbols = settings.UseDebugSymbols,
-					UseRefLocalsForAccurateOrderOfEvaluation = settings.UseRefLocalsForAccurateOrderOfEvaluation,
+					UseDebugSymbols = decompileRun.Settings.UseDebugSymbols,
+					UseRefLocalsForAccurateOrderOfEvaluation = decompileRun.Settings.UseRefLocalsForAccurateOrderOfEvaluation,
 					DebugInfo = DebugInfoProvider
 				};
 				int parameterOffset = 0;
@@ -2052,12 +2082,13 @@ namespace ICSharpCode.Decompiler.CSharp
 					entityDecl.AddChild(body, Roles.Body);
 					return;
 				}
+
 				var function = ilReader.ReadIL((MethodDefinitionHandle)method.MetadataToken, methodBody, cancellationToken: CancellationToken);
 				function.CheckInvariant(ILPhase.Normal);
 
 				AddAnnotationsToDeclaration(method, entityDecl, function, parameterOffset);
 
-				var localSettings = settings.Clone();
+				var localSettings = decompileRun.Settings.Clone();
 				if (IsWindowsFormsInitializeComponentMethod(method))
 				{
 					localSettings.UseImplicitMethodGroupConversion = false;

@@ -30,7 +30,7 @@
     <EnableDefaultItems>false</EnableDefaultItems>
     <LangVersion>14</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <SignAssembly>True</SignAssembly>
+    <SignAssembly>False</SignAssembly>
     <AssemblyOriginatorKeyFile>ICSharpCode.Decompiler.snk</AssemblyOriginatorKeyFile>
     <NoWarn>$(NoWarn);1701;1702;1591;1573</NoWarn>
     <WarningsAsErrors>nullable</WarningsAsErrors>
